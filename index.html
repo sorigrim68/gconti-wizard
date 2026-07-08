@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>글콘티 작성 마법사</title>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs" type="module"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">Scenario to Storyboard</p>
+      <h1>글콘티 작성 마법사</h1>
+    </div>
+    <div class="header-actions">
+      <button id="sampleBtn" type="button" class="ghost-button" title="예시 대본 불러오기">예시</button>
+      <button id="saveProjectBtn" type="button" title="작성 중인 글콘티 작업 파일 저장">작업 저장</button>
+      <label class="header-file-button" title="저장한 글콘티 작업 파일 불러오기">
+        <input id="projectFileInput" type="file" accept=".gconti.json,.json">
+        작업 불러오기
+      </label>
+      <button id="exportBtn" type="button" class="primary-button" title="편집 가능한 HTML 파일 저장">HTML 저장</button>
+    </div>
+    <div id="exportStatus" class="export-status" aria-live="polite"></div>
+  </header>
+
+  <main class="workspace">
+    <section class="input-panel" aria-label="원문 입력">
+      <div class="panel-title">
+        <h2>원문</h2>
+        <label class="file-button" title="텍스트 파일 불러오기">
+          <input id="fileInput" type="file" accept=".txt,.text,.md,.markdown,.csv,.tsv,.json,.html,.htm,.srt,.vtt,.rtf,.doc,.docx,.pdf,.hwp,.hwpx,.odt">
+          파일
+        </label>
+      </div>
+      <textarea id="sourceText" spellcheck="false" placeholder="시나리오, 극본, 대본, 텍스트를 붙여넣으세요. 장면/씬/S# 표기, 번호, INT./EXT. 표기를 기준으로 자동 분리합니다."></textarea>
+      <p id="fileStatus" class="file-status" aria-live="polite">
+        TXT, MD, CSV, JSON, HTML, SRT, VTT, RTF, DOCX, PDF, HWPX, ODT는 바로 읽습니다. 내보낸 HTML 글콘티도 다시 불러와 편집할 수 있습니다.
+      </p>
+      <div class="parse-controls">
+        <label>
+          장면 분리
+          <select id="splitMode">
+            <option value="auto">자동</option>
+            <option value="heading">장면/씬 표기</option>
+            <option value="paragraph">빈 줄 문단</option>
+          </select>
+        </label>
+        <label>
+          기본 컷 길이
+          <input id="defaultDuration" type="number" min="1" max="300" value="10">
+          초
+        </label>
+        <button id="parseBtn" type="button" class="primary-button">글콘티 생성</button>
+      </div>
+    </section>
+
+    <section class="editor-panel" aria-label="글콘티 편집">
+      <div class="meta-bar">
+        <label>작품명 <input id="projectTitle" type="text" value="새 글콘티"></label>
+        <label>작성자 <input id="authorName" type="text" placeholder="작성자"></label>
+        <label>버전 <input id="versionName" type="text" value="v1.0"></label>
+        <label>작성일 <input id="createdDate" type="date"></label>
+      </div>
+
+      <div class="toolbar">
+        <button id="addRowBtn" type="button" title="새 장면 추가">+ 장면</button>
+        <button id="duplicateRowBtn" type="button" title="선택 장면 복제">복제</button>
+        <button id="deleteRowBtn" type="button" title="선택 장면 삭제">삭제</button>
+        <button id="renumberBtn" type="button" title="장면 번호 다시 매기기">번호 정리</button>
+      </div>
+
+      <div class="table-wrap">
+        <table id="storyboardTable">
+          <thead>
+            <tr>
+              <th class="select-col">선택</th>
+              <th>장면</th>
+              <th>컷</th>
+              <th>예상 시간</th>
+              <th>장소</th>
+              <th>시간대</th>
+              <th>화면/액션</th>
+              <th>대사/내레이션</th>
+              <th>자막/그래픽</th>
+              <th>음향/BGM</th>
+              <th>전환/효과</th>
+              <th>촬영/연출 메모</th>
+            </tr>
+          </thead>
+          <tbody id="storyboardBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <template id="rowTemplate">
+    <tr>
+      <td class="select-col"><input type="checkbox" class="row-check" aria-label="장면 선택"></td>
+      <td><input data-field="scene" type="text"></td>
+      <td><input data-field="cut" type="text"></td>
+      <td><input data-field="duration" type="text"></td>
+      <td><input data-field="location" type="text"></td>
+      <td>
+        <select data-field="timeOfDay">
+          <option value=""></option>
+          <option>아침</option>
+          <option>낮</option>
+          <option>저녁</option>
+          <option>밤</option>
+          <option>새벽</option>
+          <option>실내</option>
+          <option>실외</option>
+        </select>
+      </td>
+      <td><textarea data-field="visual"></textarea></td>
+      <td><textarea data-field="dialogue"></textarea></td>
+      <td><textarea data-field="caption"></textarea></td>
+      <td><textarea data-field="sound"></textarea></td>
+      <td><textarea data-field="transition"></textarea></td>
+      <td><textarea data-field="memo"></textarea></td>
+    </tr>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
