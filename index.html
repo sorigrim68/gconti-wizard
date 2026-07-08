@@ -89,7 +89,10 @@
         <button id="duplicateRowBtn" type="button" title="선택 장면 복제">복제</button>
         <button id="deleteRowBtn" type="button" title="선택 장면 삭제">삭제</button>
         <button id="renumberBtn" type="button" title="장면 번호 다시 매기기">번호 정리</button>
+        <button id="toggleTableBtn" type="button" title="전체 표 보기 전환">표 보기</button>
       </div>
+
+      <div id="cardEditor" class="card-editor" aria-label="카드형 글콘티 편집"></div>
 
       <div class="table-wrap">
         <table id="storyboardTable">
@@ -153,6 +156,53 @@
       <td><textarea data-field="lighting"></textarea></td>
       <td><textarea data-field="memo"></textarea></td>
     </tr>
+  </template>
+
+  <template id="cardTemplate">
+    <article class="edit-card">
+      <div class="card-topline">
+        <label class="card-check"><input type="checkbox" class="row-check" aria-label="컷 선택"> 선택</label>
+        <div class="card-id">
+          <label>장면 <input data-field="scene" type="text"></label>
+          <label>컷 <input data-field="cut" type="text"></label>
+          <label>시간 <input data-field="duration" type="text"></label>
+        </div>
+      </div>
+
+      <div class="card-main-grid">
+        <label class="wide-field">콘티 프레임<textarea data-field="frame"></textarea></label>
+        <label class="wide-field">화면/액션<textarea data-field="visual"></textarea></label>
+        <label class="wide-field">대사/내레이션<textarea data-field="dialogue"></textarea></label>
+      </div>
+
+      <div class="card-field-grid">
+        <label>장소 <input data-field="location" type="text"></label>
+        <label>시간대
+          <select data-field="timeOfDay">
+            <option value=""></option>
+            <option>아침</option>
+            <option>낮</option>
+            <option>저녁</option>
+            <option>밤</option>
+            <option>새벽</option>
+            <option>실내</option>
+            <option>실외</option>
+          </select>
+        </label>
+        <label>샷/사이즈 <input data-field="shotSize" type="text"></label>
+        <label>앵글/구도 <input data-field="angle" type="text"></label>
+        <label>카메라 <input data-field="camera" type="text"></label>
+        <label>편집/전환 <input data-field="transition" type="text"></label>
+      </div>
+
+      <div class="card-detail-grid">
+        <label>자막/VFX<textarea data-field="caption"></textarea></label>
+        <label>음향/BGM<textarea data-field="sound"></textarea></label>
+        <label>등장/소품<textarea data-field="castProps"></textarea></label>
+        <label>조명/톤<textarea data-field="lighting"></textarea></label>
+        <label class="wide-field">촬영/연출 메모<textarea data-field="memo"></textarea></label>
+      </div>
+    </article>
   </template>
 
   <script src="app.js"></script>

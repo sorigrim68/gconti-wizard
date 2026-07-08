@@ -38,6 +38,9 @@ const splitMode = document.querySelector("#splitMode");
 const defaultDuration = document.querySelector("#defaultDuration");
 const tbody = document.querySelector("#storyboardBody");
 const template = document.querySelector("#rowTemplate");
+const cardEditor = document.querySelector("#cardEditor");
+const cardTemplate = document.querySelector("#cardTemplate");
+const tableWrap = document.querySelector(".table-wrap");
 const fileStatus = document.querySelector("#fileStatus");
 const analysisSummary = document.querySelector("#analysisSummary");
 const readableExtensions = new Set([
@@ -66,6 +69,7 @@ document.querySelector("#addRowBtn").addEventListener("click", () => appendRow(e
 document.querySelector("#duplicateRowBtn").addEventListener("click", duplicateSelectedRows);
 document.querySelector("#deleteRowBtn").addEventListener("click", deleteSelectedRows);
 document.querySelector("#renumberBtn").addEventListener("click", renumberRows);
+document.querySelector("#toggleTableBtn").addEventListener("click", toggleTableView);
 document.querySelector("#exportBtn").addEventListener("click", exportHtml);
 document.querySelector("#exportCardBtn").addEventListener("click", exportCardHtml);
 document.querySelector("#saveProjectBtn").addEventListener("click", saveProjectFile);
@@ -515,8 +519,12 @@ function buildMemo({ shot, movement, angle, lighting, characters, props, source 
 
 function buildRows(rows) {
   tbody.innerHTML = "";
+  cardEditor.innerHTML = "";
   const normalizedRows = rows.map((row, index) => normalizeRow(row, index + 1));
-  normalizedRows.forEach(appendRow);
+  normalizedRows.forEach((row) => {
+    appendCard(row);
+    appendTableRow(row);
+  });
   updateAnalysisSummary(normalizedRows, sourceText.value);
 }
 
@@ -527,51 +535,113 @@ function normalizeRow(row, index) {
 }
 
 function appendRow(row) {
+  const normalized = normalizeRow(row, cardEditor.children.length + 1);
+  appendCard(normalized);
+  appendTableRow(normalized);
+  updateAnalysisSummary(getRows(), sourceText.value);
+}
+
+function appendCard(row) {
+  const node = cardTemplate.content.firstElementChild.cloneNode(true);
+  fillControls(node, row);
+  node.addEventListener("input", handleCardInput);
+  node.addEventListener("change", handleCardInput);
+  cardEditor.appendChild(node);
+}
+
+function appendTableRow(row) {
   const node = template.content.firstElementChild.cloneNode(true);
-  fields.forEach((field) => {
-    const control = node.querySelector(`[data-field="${field}"]`);
-    control.value = row[field] || "";
-  });
-  node.addEventListener("input", () => updateAnalysisSummary(getRows(), sourceText.value));
+  fillControls(node, row);
+  node.addEventListener("input", handleTableInput);
+  node.addEventListener("change", handleTableInput);
   tbody.appendChild(node);
 }
 
-function getRows() {
-  return [...tbody.querySelectorAll("tr")].map((tr) => {
-    const row = {};
-    fields.forEach((field) => {
-      row[field] = tr.querySelector(`[data-field="${field}"]`).value;
-    });
-    return row;
+function fillControls(container, row) {
+  fields.forEach((field) => {
+    const control = container.querySelector(`[data-field="${field}"]`);
+    if (control) control.value = row[field] || "";
   });
 }
 
-function duplicateSelectedRows() {
-  const selected = [...tbody.querySelectorAll("tr")].filter((tr) => tr.querySelector(".row-check").checked);
-  selected.forEach((tr) => {
-    const row = {};
-    fields.forEach((field) => {
-      row[field] = tr.querySelector(`[data-field="${field}"]`).value;
-    });
-    appendRow(row);
+function handleCardInput(event) {
+  const card = event.currentTarget;
+  const index = [...cardEditor.children].indexOf(card);
+  const row = readRowFromContainer(card);
+  syncContainer(tbody.children[index], row);
+  updateAnalysisSummary(getRows(), sourceText.value);
+}
+
+function handleTableInput(event) {
+  const tr = event.currentTarget;
+  const index = [...tbody.children].indexOf(tr);
+  const row = readRowFromContainer(tr);
+  syncContainer(cardEditor.children[index], row);
+  updateAnalysisSummary(getRows(), sourceText.value);
+}
+
+function syncContainer(container, row) {
+  if (!container) return;
+  fillControls(container, row);
+  const sourceChecked = row.__checked || false;
+  const check = container.querySelector(".row-check");
+  if (check) check.checked = sourceChecked;
+}
+
+function getRows() {
+  const source = cardEditor.children.length ? [...cardEditor.children] : [...tbody.querySelectorAll("tr")];
+  return source.map((container) => stripInternalFields(readRowFromContainer(container)));
+}
+
+function readRowFromContainer(container) {
+  const row = {};
+  fields.forEach((field) => {
+    row[field] = container.querySelector(`[data-field="${field}"]`)?.value || "";
   });
+  row.__checked = container.querySelector(".row-check")?.checked || false;
+  return row;
+}
+
+function duplicateSelectedRows() {
+  const selected = getSelectedCards();
+  selected.forEach((card) => appendRow(stripInternalFields(readRowFromContainer(card))));
   renumberRows();
 }
 
 function deleteSelectedRows() {
-  const selected = [...tbody.querySelectorAll("tr")].filter((tr) => tr.querySelector(".row-check").checked);
-  selected.forEach((tr) => tr.remove());
-  if (!tbody.children.length) {
+  const selectedIndexes = getSelectedCards().map((card) => [...cardEditor.children].indexOf(card));
+  selectedIndexes.sort((a, b) => b - a).forEach((index) => {
+    cardEditor.children[index]?.remove();
+    tbody.children[index]?.remove();
+  });
+  if (!cardEditor.children.length) {
     appendRow(emptyRow(1));
   }
   renumberRows();
 }
 
 function renumberRows() {
-  [...tbody.querySelectorAll("tr")].forEach((tr, index) => {
-    tr.querySelector('[data-field="scene"]').value = String(index + 1).padStart(2, "0");
+  [...cardEditor.children].forEach((card, index) => {
+    const value = String(index + 1).padStart(2, "0");
+    card.querySelector('[data-field="scene"]').value = value;
+    tbody.children[index]?.querySelector('[data-field="scene"]') && (tbody.children[index].querySelector('[data-field="scene"]').value = value);
   });
   updateAnalysisSummary(getRows(), sourceText.value);
+}
+
+function getSelectedCards() {
+  return [...cardEditor.children].filter((card) => card.querySelector(".row-check").checked);
+}
+
+function stripInternalFields(row) {
+  const clean = { ...row };
+  delete clean.__checked;
+  return clean;
+}
+
+function toggleTableView() {
+  tableWrap.classList.toggle("is-visible");
+  document.querySelector("#toggleTableBtn").textContent = tableWrap.classList.contains("is-visible") ? "표 숨기기" : "표 보기";
 }
 
 function updateAnalysisSummary(rows, text) {

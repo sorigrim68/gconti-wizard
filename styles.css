@@ -302,10 +302,100 @@ textarea:focus {
   min-width: 74px;
 }
 
+.card-editor {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 14px;
+  background: #f7f9fc;
+}
+
+.edit-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 10px 22px rgba(24, 33, 47, .06);
+  padding: 14px;
+}
+
+.edit-card:focus-within {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .12), 0 12px 26px rgba(24, 33, 47, .08);
+}
+
+.card-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.card-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-strong);
+}
+
+.card-id {
+  display: grid;
+  grid-template-columns: 86px 70px 92px;
+  gap: 8px;
+}
+
+.card-main-grid,
+.card-field-grid,
+.card-detail-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.card-main-grid {
+  grid-template-columns: 1fr;
+}
+
+.card-field-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.card-detail-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.wide-field {
+  grid-column: 1 / -1;
+}
+
+.edit-card label {
+  display: block;
+}
+
+.edit-card textarea {
+  min-height: 76px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.edit-card .card-main-grid textarea {
+  min-height: 96px;
+}
+
 .table-wrap {
+  display: none;
   flex: 1;
   overflow: auto;
   background: #fff;
+}
+
+.table-wrap.is-visible {
+  display: block;
 }
 
 table {
@@ -431,6 +521,10 @@ td:nth-child(17) {
   .editor-panel {
     min-height: 660px;
   }
+
+  .card-editor {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 640px) {
@@ -453,6 +547,12 @@ td:nth-child(17) {
   .header-actions,
   .parse-controls {
     width: 100%;
+  }
+
+  .card-field-grid,
+  .card-detail-grid,
+  .card-id {
+    grid-template-columns: 1fr;
   }
 }
 
