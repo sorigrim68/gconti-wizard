@@ -67,6 +67,7 @@ document.querySelector("#duplicateRowBtn").addEventListener("click", duplicateSe
 document.querySelector("#deleteRowBtn").addEventListener("click", deleteSelectedRows);
 document.querySelector("#renumberBtn").addEventListener("click", renumberRows);
 document.querySelector("#exportBtn").addEventListener("click", exportHtml);
+document.querySelector("#exportCardBtn").addEventListener("click", exportCardHtml);
 document.querySelector("#saveProjectBtn").addEventListener("click", saveProjectFile);
 document.querySelector("#fileInput").addEventListener("change", loadTextFile);
 document.querySelector("#projectFileInput").addEventListener("change", loadProjectFile);
@@ -922,6 +923,9 @@ function tryLoadProjectJson(text) {
 
 function tryLoadExportedHtml(text) {
   const doc = new DOMParser().parseFromString(text, "text/html");
+  if (tryLoadCardStoryboardHtml(doc)) {
+    return true;
+  }
   const table = doc.querySelector("table");
   const title = doc.querySelector("h1")?.textContent?.trim() || "";
   if (!table || !title.includes("글콘티")) {
@@ -963,6 +967,105 @@ function tryLoadExportedHtml(text) {
     rows
   });
   return true;
+}
+
+function tryLoadCardStoryboardHtml(doc) {
+  const labels = [...doc.querySelectorAll("div")]
+    .map((node) => node.textContent.trim())
+    .filter((text) => ["장면 설명", "피사체 동작·대사", "앵글", "무브먼트", "효과음·연출"].includes(text));
+  if (labels.length < 5) {
+    return false;
+  }
+
+  const cardHeaders = [...doc.querySelectorAll("div")]
+    .filter((node) => /^s#\d+-\d+$/i.test(node.textContent.trim()));
+  if (!cardHeaders.length) {
+    return false;
+  }
+
+  const rows = cardHeaders.map((header) => {
+    const card = header.parentElement;
+    const cutId = header.textContent.trim().match(/s#(\d+)-(\d+)/i);
+    const sceneTitle = findCardSceneTitle(card);
+    const headingParts = parseCardSceneTitle(sceneTitle);
+    const values = extractCardValues(card);
+    const row = emptyRow(Number(cutId?.[1] || 1));
+    row.scene = String(cutId?.[1] || "").padStart(2, "0");
+    row.cut = cutId?.[2] || "1";
+    row.location = headingParts.location || inferLocation(values["장면 설명"] || "") || "";
+    row.timeOfDay = headingParts.timeOfDay || inferTimeOfDay(values["장면 설명"] || "");
+    row.frame = values["장면 설명"] || "";
+    row.visual = values["피사체 동작·대사"] || "";
+    row.dialogue = extractDialogueFromAction(values["피사체 동작·대사"] || "");
+    row.shotSize = values["앵글"] || "";
+    row.angle = values["앵글"] || "";
+    row.camera = values["무브먼트"] || "";
+    row.sound = values["효과음·연출"] || "";
+    row.memo = values["효과음·연출"] || "";
+    enrichImportedRow(row);
+    return row;
+  });
+
+  applyProject({
+    type: "gconti-storyboard-project",
+    meta: {
+      title: doc.title?.replace(/\s*글콘티\s*$/, "") || "STORYWAVE 글콘티",
+      author: "",
+      version: "v1.0",
+      date: new Date().toISOString().slice(0, 10)
+    },
+    settings: {
+      splitMode: splitMode.value,
+      defaultDuration: defaultDuration.value
+    },
+    sourceText: "",
+    rows
+  });
+  return true;
+}
+
+function findCardSceneTitle(card) {
+  let node = card.parentElement;
+  const rootBody = card.ownerDocument?.body;
+  while (node && node !== rootBody) {
+    const previous = node.previousElementSibling;
+    if (previous && /🎬\s*s#\d+\./.test(previous.textContent)) {
+      return previous.textContent.trim();
+    }
+    node = node.parentElement;
+  }
+  return "";
+}
+
+function parseCardSceneTitle(title) {
+  const cleaned = title
+    .replace(/^🎬\s*/u, "")
+    .replace(/^s#\d+\.\s*/i, "")
+    .trim();
+  const timeMatch = cleaned.match(/\(([^)]+)\)\s*$/);
+  return {
+    location: cleaned.replace(/\([^)]+\)\s*$/, "").trim(),
+    timeOfDay: timeMatch ? inferTimeOfDay(timeMatch[1]) || timeMatch[1] : ""
+  };
+}
+
+function extractCardValues(card) {
+  const values = {};
+  const nodes = [...card.querySelectorAll("div")];
+  nodes.forEach((node, index) => {
+    const label = node.textContent.trim();
+    if (["장면 설명", "피사체 동작·대사", "앵글", "무브먼트", "효과음·연출"].includes(label)) {
+      values[label] = nodes[index + 1]?.textContent.trim() || "";
+    }
+  });
+  return values;
+}
+
+function extractDialogueFromAction(text) {
+  return text
+    .split(/\n+/)
+    .filter((line) => /^[가-힣A-Za-z0-9 _.-]{1,22}\s*[:：]/.test(line.trim()))
+    .join("\n");
 }
 
 function stripMetaPrefix(value) {
@@ -1071,6 +1174,22 @@ function exportHtml() {
   showExportLink(url, filename);
 }
 
+function exportCardHtml() {
+  const rows = getRows();
+  const meta = getMeta();
+  const html = renderCardDocument(meta, rows);
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const filename = `${sanitizeFilename(meta.title)}_카드형_글콘티.html`;
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  showExportLink(url, filename);
+}
+
 function getMeta() {
   return {
     title: document.querySelector("#projectTitle").value || "글콘티",
@@ -1143,6 +1262,72 @@ ${rows.map((row) => `<tr>${keys.map((key) => `<td><div contenteditable="true">${
 </main>
 </body>
 </html>`;
+}
+
+function renderCardDocument(meta, rows) {
+  const grouped = groupRowsByScene(rows);
+  return `<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(meta.title)} 글콘티</title>
+</head>
+<body style="background:#080b11;color:#e4ddd0;font-family:Inter,'Pretendard Variable','Apple SD Gothic Neo','Malgun Gothic',sans-serif;padding:40px 32px;max-width:1180px;margin:0 auto;">
+<div style="display:flex;justify-content:space-between;gap:20px;align-items:flex-end;padding-bottom:20px;border-bottom:1px solid #1e2435;margin-bottom:40px;">
+<div>
+<div style="font-size:18px;font-weight:900;color:#c9a040;letter-spacing:3px;">STORYWAVE</div>
+<div style="font-size:28px;font-weight:900;color:#e4ddd0;margin-top:8px;">${escapeHtml(meta.title)} 글콘티</div>
+</div>
+<div style="font-size:11px;color:#6b7585;text-align:right;">${escapeHtml(meta.date || new Date().toISOString().slice(0, 10))}<br>${escapeHtml(meta.version || "")}</div>
+</div>
+${Object.entries(grouped).map(([scene, sceneRows]) => renderCardScene(scene, sceneRows)).join("\n")}
+</body>
+</html>`;
+}
+
+function groupRowsByScene(rows) {
+  return rows.reduce((groups, row) => {
+    const key = row.scene || "00";
+    groups[key] ||= [];
+    groups[key].push(row);
+    return groups;
+  }, {});
+}
+
+function renderCardScene(scene, rows) {
+  const first = rows[0] || {};
+  const title = `s#${Number(scene) || scene}. ${[first.location, first.timeOfDay ? `(${first.timeOfDay})` : ""].filter(Boolean).join(" ")}`;
+  return `<section style="margin-bottom:44px;">
+<div style="font-size:14px;font-weight:800;color:#c9a040;padding:8px 14px;background:#111520;border-left:3px solid #c9a040;border-radius:0 6px 6px 0;margin-bottom:16px;">🎬 ${escapeHtml(title)}</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;">
+${rows.map((row) => renderCardShot(row)).join("\n")}
+</div>
+</section>`;
+}
+
+function renderCardShot(row) {
+  const shotId = `s#${Number(row.scene) || row.scene}-${row.cut || "1"}`;
+  const actionDialogue = [row.visual, row.dialogue].filter(Boolean).join("\n");
+  const angle = [row.angle, row.shotSize].filter(Boolean).join(", ");
+  const soundDirection = [row.sound, row.caption ? `자막/VFX: ${row.caption}` : "", row.memo ? `연출: ${row.memo}` : ""].filter(Boolean).join("\n");
+  return `<article style="background:#111520;border:1px solid #1e2435;border-radius:10px;overflow:hidden;break-inside:avoid;">
+<div style="background:#181d28;padding:9px 14px;border-bottom:1px solid #1e2435;font-size:11px;font-weight:900;color:#c9a040;">${escapeHtml(shotId)}</div>
+<div style="padding:13px;">
+${renderCardField("장면 설명", row.frame || row.visual || "", "#e4ddd0")}
+${renderCardField("피사체 동작·대사", actionDialogue, "#e4ddd0")}
+${renderCardField("앵글", angle, "#7eb8f7")}
+${renderCardField("무브먼트", row.camera || "", "#82c9b0")}
+${renderCardField("효과음·연출", soundDirection, "#e0a060")}
+</div>
+</article>`;
+}
+
+function renderCardField(label, value, color) {
+  return `<div style="margin-bottom:9px;">
+<div style="font-size:9px;color:#6b7585;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;">${escapeHtml(label)}</div>
+<div style="font-size:12px;color:${color};line-height:1.6;white-space:pre-wrap;">${escapeHtml(value || "-")}</div>
+</div>`;
 }
 
 function sanitizeFilename(name) {
