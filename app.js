@@ -91,7 +91,7 @@ function parseScript(text) {
 
   const chunks = splitIntoScenes(normalized);
   const rows = chunks.flatMap((chunk, index) => sceneToRows(chunk, index + 1));
-  return rows.length ? rows : [emptyRow(1)];
+  return rows.length ? balanceRuntime(rows, normalized) : [emptyRow(1)];
 }
 
 function splitIntoScenes(text) {
@@ -130,7 +130,7 @@ function sceneToRows(chunk, index) {
   const body = lines.slice(1);
   const headingParts = parseHeading(heading);
   const sceneNo = headingParts.scene || String(index).padStart(2, "0");
-  const events = body.length ? body.map(classifyLine).filter(Boolean) : [classifyLine(heading)];
+  const events = body.length ? body.flatMap(lineToEvents).filter(Boolean) : [classifyLine(heading)];
   const groups = groupEventsIntoCuts(events);
 
   return groups.map((group, cutIndex) => {
@@ -212,6 +212,40 @@ function classifyLine(rawLine) {
     return { type: "sound", text: line };
   }
   return { type: "action", text: line };
+}
+
+function lineToEvents(line) {
+  const classified = classifyLine(line);
+  if (!classified) return [];
+  if (classified.type !== "action" || classified.text.length < 90) {
+    return [classified];
+  }
+
+  return splitLongActionText(classified.text).map((text) => ({ type: "action", text }));
+}
+
+function splitLongActionText(text) {
+  const parts = text
+    .replace(/([.!?。！？])\s+/g, "$1\n")
+    .replace(/(다\.|다|요\.|요|함\.|함)\s+/g, "$1\n")
+    .split(/\n+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length > 1) return parts;
+
+  const chunks = [];
+  let current = "";
+  text.split(/\s+/).forEach((word) => {
+    if ((current + " " + word).trim().length > 80) {
+      chunks.push(current.trim());
+      current = word;
+    } else {
+      current = `${current} ${word}`.trim();
+    }
+  });
+  if (current) chunks.push(current.trim());
+  return chunks;
 }
 
 function groupEventsIntoCuts(events) {
@@ -307,10 +341,92 @@ function estimateDuration(group) {
   const dialogueChars = group
     .filter((item) => item.type === "dialogue")
     .map((item) => item.text.replace(/^[^:：]+[:：]\s*/, ""))
-    .join(" ").length;
+    .join(" ")
+    .replace(/\s/g, "")
+    .length;
   const actionChars = group.filter((item) => item.type === "action").map((item) => item.text).join(" ").length;
-  const seconds = Math.ceil(dialogueChars / 6) + Math.ceil(actionChars / 18) + 2;
-  return Math.max(4, Math.min(45, seconds || Number(defaultDuration.value) || 10));
+  const soundCaptionChars = group
+    .filter((item) => item.type === "sound" || item.type === "caption")
+    .map((item) => item.text)
+    .join(" ")
+    .replace(/\s/g, "")
+    .length;
+  const seconds =
+    Math.ceil(dialogueChars / 3.4) +
+    Math.ceil(actionChars / 8) +
+    Math.ceil(soundCaptionChars / 7) +
+    3;
+  return Math.max(5, seconds || Number(defaultDuration.value) || 10);
+}
+
+function balanceRuntime(rows, source) {
+  const currentTotal = sumRowDurations(rows);
+  const targetTotal = estimateRuntimeFromSource(source);
+  if (!targetTotal || currentTotal >= targetTotal * 0.92) {
+    return rows;
+  }
+
+  const ratio = targetTotal / Math.max(currentTotal, 1);
+  let balanced = rows.map((row) => {
+    const current = parseInt(row.duration, 10) || Number(defaultDuration.value) || 10;
+    const scaled = Math.round(current * ratio);
+    return {
+      ...row,
+      duration: `${Math.max(6, scaled)}초`
+    };
+  });
+
+  const diff = targetTotal - sumRowDurations(balanced);
+  if (balanced.length && Math.abs(diff) > 0) {
+    const last = balanced[balanced.length - 1];
+    const lastSeconds = parseInt(last.duration, 10) || 0;
+    balanced[balanced.length - 1] = {
+      ...last,
+      duration: `${Math.max(6, lastSeconds + diff)}초`
+    };
+  }
+  return balanced;
+}
+
+function estimateRuntimeFromSource(source) {
+  const lines = source.split("\n").map((line) => line.trim()).filter(Boolean);
+  const events = lines.flatMap(lineToEvents).filter(Boolean);
+  const dialogueChars = events
+    .filter((item) => item.type === "dialogue")
+    .map((item) => item.text.replace(/^[^:：]+[:：]\s*/, ""))
+    .join("")
+    .replace(/\s/g, "")
+    .length;
+  const actionChars = events
+    .filter((item) => item.type === "action")
+    .map((item) => item.text)
+    .join("")
+    .replace(/\s/g, "")
+    .length;
+  const captionSoundChars = events
+    .filter((item) => item.type === "caption" || item.type === "sound")
+    .map((item) => item.text)
+    .join("")
+    .replace(/\s/g, "")
+    .length;
+  const paragraphCount = source.split(/\n\s*\n+/).filter((part) => part.trim()).length;
+  const sceneCount = splitIntoScenes(source).length;
+  const readableChars = source.replace(/\s/g, "").length;
+
+  const dialogueSeconds = dialogueChars / 3.2;
+  const actionSeconds = actionChars / 7.2;
+  const captionSoundSeconds = captionSoundChars / 6.5;
+  const breathingSeconds = Math.max(paragraphCount * 6, sceneCount * 12, events.length * 1.7);
+  const densitySeconds = readableChars / 6.8;
+
+  return Math.round(Math.max(
+    dialogueSeconds + actionSeconds + captionSoundSeconds + breathingSeconds,
+    densitySeconds
+  ));
+}
+
+function sumRowDurations(rows) {
+  return rows.reduce((sum, row) => sum + (parseInt(row.duration, 10) || 0), 0);
 }
 
 function buildVisualText(actionLines, dialogueLines, characters, shot) {
