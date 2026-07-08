@@ -6,7 +6,7 @@
 
 - 원문 붙여넣기 또는 파일 업로드
 - TXT, MD, CSV, TSV, JSON, HTML, SRT, VTT, RTF 직접 읽기
-- DOCX, PDF, HWPX, ODT 브라우저 내 본문 추출
+- DOC, DOCX, PDF, HWP, HWPX, ODT 브라우저 내 본문 추출
 - 글콘티 표준 항목 편집
 - 작업 파일 저장/불러오기 (`.gconti.json`)
 - 내보낸 HTML 글콘티 다시 불러오기 및 편집
@@ -15,4 +15,3 @@
 ## 사용
 
 `index.html`을 브라우저에서 열거나 GitHub Pages로 배포해 사용합니다.
-

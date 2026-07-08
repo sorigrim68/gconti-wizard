@@ -46,8 +46,7 @@ const readableExtensions = new Set([
   "vtt",
   "rtf"
 ]);
-const conversionExtensions = new Set(["doc", "docx", "pdf", "hwp", "hwpx", "odt"]);
-const browserParsedExtensions = new Set(["docx", "pdf", "hwpx", "odt"]);
+const browserParsedExtensions = new Set(["doc", "docx", "pdf", "hwp", "hwpx", "odt"]);
 
 document.querySelector("#createdDate").valueAsDate = new Date();
 document.querySelector("#sampleBtn").addEventListener("click", () => {
@@ -231,12 +230,6 @@ async function loadTextFile(event) {
   if (!file) return;
   const extension = getExtension(file.name);
 
-  if (extension === "doc" || extension === "hwp") {
-    setFileStatus(`${file.name} 파일은 오래된 바이너리 문서 형식이라 브라우저에서 안정적으로 추출하기 어렵습니다. DOCX/HWPX/PDF/TXT로 변환해 불러오세요.`, true);
-    event.target.value = "";
-    return;
-  }
-
   if (!readableExtensions.has(extension) && !browserParsedExtensions.has(extension)) {
     setFileStatus(`${file.name} 형식은 아직 자동 읽기 대상이 아닙니다. 파일 내용을 텍스트로 붙여넣으면 글콘티로 변환할 수 있습니다.`, true);
     event.target.value = "";
@@ -264,6 +257,9 @@ async function loadTextFile(event) {
 }
 
 async function readUploadedFile(file, extension) {
+  if (extension === "doc") {
+    return readLegacyDoc(file);
+  }
   if (extension === "docx") {
     return readDocx(file);
   }
@@ -272,6 +268,9 @@ async function readUploadedFile(file, extension) {
   }
   if (extension === "hwpx") {
     return readZipXmlText(file, /Contents\/section\d+\.xml$/i);
+  }
+  if (extension === "hwp") {
+    return readHwp(file);
   }
   if (extension === "odt") {
     return readZipXmlText(file, /content\.xml$/i);
@@ -327,6 +326,180 @@ function xmlToText(xml) {
     .replace(/\n\s+/g, "\n")
     .replace(/[ \t]{2,}/g, " ")
     .trim();
+}
+
+async function readHwp(file) {
+  const cfb = await readCfb(file);
+  const header = findCfbEntry(cfb, "FileHeader");
+  if (!header) {
+    throw new Error("HWP 파일 헤더를 찾지 못했습니다.");
+  }
+
+  const headerText = decodeAscii(header.content.slice(0, 40));
+  if (!headerText.includes("HWP Document File")) {
+    throw new Error("지원하는 HWP 5 문서가 아닙니다.");
+  }
+
+  const flags = readUInt32LE(header.content, 36);
+  const isCompressed = (flags & 1) === 1;
+  const sections = cfb.FileIndex
+    .filter((entry) => /BodyText\/Section\d+$/i.test(entry.name))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+  if (!sections.length) {
+    throw new Error("HWP 본문 영역을 찾지 못했습니다.");
+  }
+
+  const parts = sections.map((entry) => {
+    let bytes = entry.content;
+    if (isCompressed) {
+      bytes = window.pako.inflateRaw(bytes);
+    }
+    return extractHwpSectionText(bytes);
+  });
+
+  const text = cleanExtractedText(parts.join("\n\n"));
+  if (!text) {
+    throw new Error("HWP에서 추출 가능한 본문이 없습니다.");
+  }
+  return text;
+}
+
+function extractHwpSectionText(bytes) {
+  const chunks = [];
+  let offset = 0;
+  while (offset + 4 <= bytes.length) {
+    const header = readUInt32LE(bytes, offset);
+    offset += 4;
+    const tagId = header & 0x3ff;
+    let size = (header >>> 20) & 0xfff;
+    if (size === 0xfff) {
+      if (offset + 4 > bytes.length) break;
+      size = readUInt32LE(bytes, offset);
+      offset += 4;
+    }
+    if (offset + size > bytes.length) break;
+    if (tagId === 67) {
+      chunks.push(decodeUtf16LE(bytes.slice(offset, offset + size)));
+    }
+    offset += size;
+  }
+  return chunks.join("\n");
+}
+
+async function readLegacyDoc(file) {
+  const cfb = await readCfb(file);
+  const preferred = findCfbEntry(cfb, "WordDocument");
+  const streams = preferred ? [preferred] : cfb.FileIndex.filter((entry) => entry.content && entry.content.length);
+  const text = cleanExtractedText(streams.map((entry) => extractBinaryDocumentText(entry.content)).join("\n"));
+  if (!text) {
+    throw new Error("DOC에서 추출 가능한 본문이 없습니다. 암호화 문서이거나 오래된 특수 형식일 수 있습니다.");
+  }
+  return text;
+}
+
+async function readCfb(file) {
+  if (!window.CFB) {
+    throw new Error("바이너리 문서 파서가 아직 로드되지 않았습니다. 잠시 후 다시 시도하세요.");
+  }
+  return window.CFB.read(await file.arrayBuffer(), { type: "array" });
+}
+
+function findCfbEntry(cfb, suffix) {
+  return cfb.FileIndex.find((entry) => entry.name.replace(/^Root Entry\//, "").endsWith(suffix));
+}
+
+function extractBinaryDocumentText(bytes) {
+  return [
+    extractUtf16Strings(bytes),
+    extractSingleByteStrings(bytes)
+  ].join("\n");
+}
+
+function extractUtf16Strings(bytes) {
+  const chunks = [];
+  let current = [];
+  for (let index = 0; index + 1 < bytes.length; index += 2) {
+    const code = bytes[index] | (bytes[index + 1] << 8);
+    if (isReadableCodePoint(code)) {
+      current.push(code);
+    } else {
+      flushCodePoints(chunks, current);
+      current = [];
+    }
+  }
+  flushCodePoints(chunks, current);
+  return chunks.join("\n");
+}
+
+function extractSingleByteStrings(bytes) {
+  const chunks = [];
+  let current = "";
+  for (const byte of bytes) {
+    if ((byte >= 32 && byte <= 126) || byte === 9 || byte === 10 || byte === 13) {
+      current += String.fromCharCode(byte);
+    } else {
+      if (current.trim().length >= 8) chunks.push(current.trim());
+      current = "";
+    }
+  }
+  if (current.trim().length >= 8) chunks.push(current.trim());
+  return chunks.join("\n");
+}
+
+function flushCodePoints(chunks, codePoints) {
+  if (codePoints.length < 2) return;
+  const text = String.fromCharCode(...codePoints)
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, " ")
+    .trim();
+  if (/[가-힣A-Za-z0-9]/.test(text) && text.length >= 2) {
+    chunks.push(text);
+  }
+}
+
+function isReadableCodePoint(code) {
+  return code === 9 ||
+    code === 10 ||
+    code === 13 ||
+    code === 32 ||
+    (code >= 0x30 && code <= 0x39) ||
+    (code >= 0x41 && code <= 0x5a) ||
+    (code >= 0x61 && code <= 0x7a) ||
+    (code >= 0xac00 && code <= 0xd7a3) ||
+    (code >= 0x3130 && code <= 0x318f) ||
+    (code >= 0x1100 && code <= 0x11ff) ||
+    (code >= 0x2000 && code <= 0x206f) ||
+    (code >= 0x3000 && code <= 0x303f) ||
+    (code >= 0xff00 && code <= 0xffef);
+}
+
+function cleanExtractedText(text) {
+  return text
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line, index, lines) => line && line !== lines[index - 1])
+    .join("\n")
+    .trim();
+}
+
+function decodeUtf16LE(bytes) {
+  return new TextDecoder("utf-16le").decode(bytes);
+}
+
+function decodeAscii(bytes) {
+  return new TextDecoder("ascii").decode(bytes);
+}
+
+function readUInt32LE(bytes, offset) {
+  return bytes[offset] |
+    (bytes[offset + 1] << 8) |
+    (bytes[offset + 2] << 16) |
+    (bytes[offset + 3] << 24);
 }
 
 function saveProjectFile() {

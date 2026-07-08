@@ -8,6 +8,8 @@
   <script defer src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs" type="module"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script defer src="vendor/cfb.min.js"></script>
+  <script defer src="vendor/pako.min.js"></script>
 </head>
 <body>
   <header class="app-header">
@@ -38,7 +40,7 @@
       </div>
       <textarea id="sourceText" spellcheck="false" placeholder="시나리오, 극본, 대본, 텍스트를 붙여넣으세요. 장면/씬/S# 표기, 번호, INT./EXT. 표기를 기준으로 자동 분리합니다."></textarea>
       <p id="fileStatus" class="file-status" aria-live="polite">
-        TXT, MD, CSV, JSON, HTML, SRT, VTT, RTF, DOCX, PDF, HWPX, ODT는 바로 읽습니다. 내보낸 HTML 글콘티도 다시 불러와 편집할 수 있습니다.
+        TXT, MD, CSV, JSON, HTML, SRT, VTT, RTF, DOC, DOCX, PDF, HWP, HWPX, ODT를 읽습니다. 내보낸 HTML 글콘티도 다시 불러와 편집할 수 있습니다.
       </p>
       <div class="parse-controls">
         <label>
