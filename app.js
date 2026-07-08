@@ -32,6 +32,7 @@ const defaultDuration = document.querySelector("#defaultDuration");
 const tbody = document.querySelector("#storyboardBody");
 const template = document.querySelector("#rowTemplate");
 const fileStatus = document.querySelector("#fileStatus");
+const analysisSummary = document.querySelector("#analysisSummary");
 const readableExtensions = new Set([
   "txt",
   "text",
@@ -64,6 +65,7 @@ document.querySelector("#fileInput").addEventListener("change", loadTextFile);
 document.querySelector("#projectFileInput").addEventListener("change", loadProjectFile);
 
 buildRows([emptyRow(1)]);
+updateAnalysisSummary(getRows(), "");
 
 function emptyRow(index) {
   return {
@@ -82,13 +84,14 @@ function emptyRow(index) {
 }
 
 function parseScript(text) {
-  const normalized = text.replace(/\r\n/g, "\n").trim();
+  const normalized = normalizeScriptText(text);
   if (!normalized) {
     return [emptyRow(1)];
   }
 
   const chunks = splitIntoScenes(normalized);
-  return chunks.map((chunk, index) => sceneToRow(chunk, index + 1));
+  const rows = chunks.flatMap((chunk, index) => sceneToRows(chunk, index + 1));
+  return rows.length ? rows : [emptyRow(1)];
 }
 
 function splitIntoScenes(text) {
@@ -121,39 +124,41 @@ function splitIntoScenes(text) {
   return text.split(/\n\s*\n+/).map((part) => part.trim()).filter(Boolean);
 }
 
-function sceneToRow(chunk, index) {
+function sceneToRows(chunk, index) {
   const lines = chunk.split("\n").map((line) => line.trim()).filter(Boolean);
   const heading = lines[0] || "";
   const body = lines.slice(1);
-  const row = emptyRow(index);
   const headingParts = parseHeading(heading);
-  row.scene = headingParts.scene || row.scene;
-  row.location = headingParts.location;
-  row.timeOfDay = headingParts.timeOfDay;
+  const sceneNo = headingParts.scene || String(index).padStart(2, "0");
+  const events = body.length ? body.map(classifyLine).filter(Boolean) : [classifyLine(heading)];
+  const groups = groupEventsIntoCuts(events);
 
-  const dialogue = [];
-  const caption = [];
-  const sound = [];
-  const visual = [];
+  return groups.map((group, cutIndex) => {
+    const row = emptyRow(index);
+    const actionLines = group.filter((item) => item.type === "action").map((item) => item.text);
+    const dialogueLines = group.filter((item) => item.type === "dialogue").map((item) => item.text);
+    const captionLines = group.filter((item) => item.type === "caption").map((item) => item.text);
+    const soundLines = group.filter((item) => item.type === "sound").map((item) => item.text);
+    const transitionLines = group.filter((item) => item.type === "transition").map((item) => item.text);
+    const allText = group.map((item) => item.text).join(" ");
+    const characters = extractCharacters(group);
+    const props = extractProps(allText);
+    const shot = inferShot(actionLines.join(" "), dialogueLines.length, cutIndex, groups.length);
+    const movement = inferMovement(allText);
 
-  body.forEach((line) => {
-    if (/^(자막|그래픽|CG|SUPER)\s*[:：]/i.test(line)) {
-      caption.push(line.replace(/^(자막|그래픽|CG|SUPER)\s*[:：]\s*/i, ""));
-    } else if (/^(음향|효과음|SFX|BGM|음악)\s*[:：]/i.test(line) || /(소리|음악|BGM|효과음)/i.test(line)) {
-      sound.push(line.replace(/^(음향|효과음|SFX|BGM|음악)\s*[:：]\s*/i, ""));
-    } else if (/^[가-힣A-Za-z0-9 _-]{1,18}\s*[:：]/.test(line)) {
-      dialogue.push(line);
-    } else {
-      visual.push(line);
-    }
+    row.scene = sceneNo;
+    row.cut = String(cutIndex + 1);
+    row.duration = `${estimateDuration(group)}초`;
+    row.location = headingParts.location || inferLocation(allText) || "";
+    row.timeOfDay = headingParts.timeOfDay || inferTimeOfDay(allText);
+    row.visual = buildVisualText(actionLines, dialogueLines, characters, shot);
+    row.dialogue = dialogueLines.join("\n");
+    row.caption = captionLines.join("\n");
+    row.sound = soundLines.join("\n") || inferAmbientSound(row.timeOfDay, row.location, allText);
+    row.transition = transitionLines.join("\n") || inferTransition(cutIndex, groups.length, allText);
+    row.memo = buildMemo({ shot, movement, characters, props, source: allText });
+    return row;
   });
-
-  row.visual = visual.join("\n") || (body.length ? body.join("\n") : heading);
-  row.dialogue = dialogue.join("\n");
-  row.caption = caption.join("\n");
-  row.sound = sound.join("\n");
-  row.memo = body.length ? "원문 자동 분석 후 필요 항목을 검토하세요." : "";
-  return row;
 }
 
 function parseHeading(heading) {
@@ -174,9 +179,160 @@ function parseHeading(heading) {
   };
 }
 
+function normalizeScriptText(text) {
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{4,}/g, "\n\n\n")
+    .trim();
+}
+
+function classifyLine(rawLine) {
+  const line = rawLine.replace(/\s+/g, " ").trim();
+  if (!line) return null;
+
+  const cleanPrefix = (pattern) => line.replace(pattern, "").trim();
+  if (/^(자막|그래픽|CG|SUPER|TITLE|TEXT)\s*[:：]/i.test(line)) {
+    return { type: "caption", text: cleanPrefix(/^(자막|그래픽|CG|SUPER|TITLE|TEXT)\s*[:：]\s*/i) };
+  }
+  if (/^(음향|효과음|SFX|BGM|음악|소리)\s*[:：]/i.test(line)) {
+    return { type: "sound", text: cleanPrefix(/^(음향|효과음|SFX|BGM|음악|소리)\s*[:：]\s*/i) };
+  }
+  if (/^(전환|컷|디졸브|페이드|WIPE|CUT TO|FADE|DISSOLVE)\s*[:：]?/i.test(line)) {
+    return { type: "transition", text: cleanPrefix(/^(전환|컷|디졸브|페이드|WIPE|CUT TO|FADE|DISSOLVE)\s*[:：]?\s*/i) || line };
+  }
+  if (/^[가-힣A-Za-z0-9 _.-]{1,22}\s*[:：]/.test(line)) {
+    return { type: "dialogue", text: line };
+  }
+  if (/^\([^)]+\)$/.test(line)) {
+    return { type: "action", text: line.replace(/[()]/g, "") };
+  }
+  if (/(소리|음악|BGM|노래|울린다|들린다|효과음|침묵)/i.test(line)) {
+    return { type: "sound", text: line };
+  }
+  return { type: "action", text: line };
+}
+
+function groupEventsIntoCuts(events) {
+  const groups = [];
+  let current = [];
+  let dialogueCount = 0;
+  let actionLength = 0;
+
+  events.forEach((event) => {
+    const hasAction = current.some((item) => item.type === "action");
+    const hasDialogue = current.some((item) => item.type === "dialogue");
+    const shouldBreak =
+      current.length &&
+      (event.type === "transition" ||
+        (event.type === "dialogue" && hasAction) ||
+        (event.type === "action" && hasDialogue) ||
+        (event.type === "action" && actionLength > 80) ||
+        (event.type === "dialogue" && dialogueCount >= 2) ||
+        current.map((item) => item.text).join(" ").length > 230);
+
+    if (shouldBreak) {
+      groups.push(current);
+      current = [];
+      dialogueCount = 0;
+      actionLength = 0;
+    }
+
+    current.push(event);
+    if (event.type === "dialogue") dialogueCount += 1;
+    if (event.type === "action") actionLength += event.text.length;
+  });
+
+  if (current.length) groups.push(current);
+  return groups;
+}
+
+function extractCharacters(group) {
+  const names = group
+    .filter((item) => item.type === "dialogue")
+    .map((item) => item.text.split(/[:：]/)[0].trim())
+    .filter(Boolean);
+  return [...new Set(names)].slice(0, 4);
+}
+
+function extractProps(text) {
+  const props = ["핸드폰", "휴대폰", "전화", "노트북", "컴퓨터", "문서", "파일", "편지", "사진", "가방", "차", "컵", "책", "칼", "총", "마이크", "카메라"];
+  return props.filter((prop) => text.includes(prop)).slice(0, 5);
+}
+
+function inferShot(actionText, hasDialogue, cutIndex, totalCuts) {
+  if (/(얼굴|눈빛|표정|미소|눈물|손|입술)/.test(actionText)) return "클로즈업";
+  if (/(둘|마주|대화|앉아|서서|함께)/.test(actionText) || hasDialogue) return "미디엄 투샷";
+  if (/(전경|건물|거리|골목|방 안|카페|작업실|사무실|장소)/.test(actionText) || cutIndex === 0) return "와이드 establishing";
+  if (cutIndex === totalCuts - 1) return "리액션/정리 컷";
+  return "미디엄 샷";
+}
+
+function inferMovement(text) {
+  if (/(다가|걸어|따라|쫓|이동|향해)/.test(text)) return "트래킹";
+  if (/(돌아본|고개|시선|바라|훑)/.test(text)) return "팬/시선 이동";
+  if (/(멈추|정적|침묵|가만)/.test(text)) return "고정";
+  if (/(드러난|보인다|열린다|밝아)/.test(text)) return "천천히 틸트/줌";
+  return "고정 또는 약한 핸드헬드";
+}
+
+function inferLocation(text) {
+  const match = text.match(/(작업실|카페|사무실|집|방|거실|주방|학교|교실|복도|거리|골목|차 안|공원|병원|식당|회의실|스튜디오)/);
+  return match ? match[1] : "";
+}
+
+function inferTimeOfDay(text) {
+  const match = text.match(/(아침|낮|점심|오후|저녁|밤|새벽|실내|실외)/);
+  if (!match) return "";
+  return match[1] === "점심" || match[1] === "오후" ? "낮" : match[1];
+}
+
+function inferAmbientSound(timeOfDay, location, text) {
+  if (/(침묵|조용)/.test(text)) return "낮은 룸톤, 짧은 정적";
+  if (/(카페|식당)/.test(location)) return "실내 웅성거림, 잔잔한 BGM";
+  if (/(거리|골목|공원)/.test(location)) return "외부 앰비언스, 발소리";
+  if (timeOfDay === "밤" || timeOfDay === "새벽") return "낮은 룸톤, 멀리서 들리는 생활 소음";
+  return "";
+}
+
+function inferTransition(cutIndex, totalCuts, text) {
+  if (/(페이드|암전|어두워)/.test(text)) return "FADE";
+  if (/(회상|기억|과거)/.test(text)) return "DISSOLVE";
+  if (cutIndex < totalCuts - 1) return "CUT";
+  return "";
+}
+
+function estimateDuration(group) {
+  const dialogueChars = group
+    .filter((item) => item.type === "dialogue")
+    .map((item) => item.text.replace(/^[^:：]+[:：]\s*/, ""))
+    .join(" ").length;
+  const actionChars = group.filter((item) => item.type === "action").map((item) => item.text).join(" ").length;
+  const seconds = Math.ceil(dialogueChars / 6) + Math.ceil(actionChars / 18) + 2;
+  return Math.max(4, Math.min(45, seconds || Number(defaultDuration.value) || 10));
+}
+
+function buildVisualText(actionLines, dialogueLines, characters, shot) {
+  const action = actionLines.join("\n").trim();
+  const characterNote = characters.length ? `${characters.join(", ")} 중심. ` : "";
+  const base = action || (dialogueLines.length ? `${characterNote}대화 리액션과 시선 변화를 중심으로 구성.` : "장면 흐름에 맞춰 화면 구성.");
+  return `[${shot}] ${base}`;
+}
+
+function buildMemo({ shot, movement, characters, props, source }) {
+  const notes = [`샷: ${shot}`, `카메라: ${movement}`];
+  if (characters.length) notes.push(`등장: ${characters.join(", ")}`);
+  if (props.length) notes.push(`소품: ${props.join(", ")}`);
+  if (/(긴장|불안|놀라|멈칫|침묵)/.test(source)) notes.push("톤: 긴장감 유지");
+  if (/(웃|미소|밝)/.test(source)) notes.push("톤: 밝고 가벼운 리듬");
+  return notes.join("\n");
+}
+
 function buildRows(rows) {
   tbody.innerHTML = "";
   rows.forEach(appendRow);
+  updateAnalysisSummary(rows, sourceText.value);
 }
 
 function appendRow(row) {
@@ -185,6 +341,7 @@ function appendRow(row) {
     const control = node.querySelector(`[data-field="${field}"]`);
     control.value = row[field] || "";
   });
+  node.addEventListener("input", () => updateAnalysisSummary(getRows(), sourceText.value));
   tbody.appendChild(node);
 }
 
@@ -223,6 +380,34 @@ function renumberRows() {
   [...tbody.querySelectorAll("tr")].forEach((tr, index) => {
     tr.querySelector('[data-field="scene"]').value = String(index + 1).padStart(2, "0");
   });
+  updateAnalysisSummary(getRows(), sourceText.value);
+}
+
+function updateAnalysisSummary(rows, text) {
+  if (!analysisSummary) return;
+  const sceneCount = new Set(rows.map((row) => row.scene).filter(Boolean)).size;
+  const dialogueCount = rows.filter((row) => row.dialogue && row.dialogue.trim()).length;
+  const totalSeconds = rows.reduce((sum, row) => sum + (parseInt(row.duration, 10) || 0), 0);
+  const sourceLength = text ? text.replace(/\s/g, "").length : 0;
+  analysisSummary.innerHTML = "";
+  [
+    `장면 ${sceneCount || 0}`,
+    `컷 ${rows.length}`,
+    `대사 컷 ${dialogueCount}`,
+    `예상 ${formatSeconds(totalSeconds)}`,
+    sourceLength ? `원문 ${sourceLength.toLocaleString("ko-KR")}자` : ""
+  ].filter(Boolean).forEach((item) => {
+    const span = document.createElement("span");
+    span.textContent = item;
+    analysisSummary.appendChild(span);
+  });
+}
+
+function formatSeconds(seconds) {
+  if (!seconds) return "0초";
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return minutes ? `${minutes}분 ${rest}초` : `${rest}초`;
 }
 
 async function loadTextFile(event) {

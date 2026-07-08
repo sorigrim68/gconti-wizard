@@ -32,7 +32,10 @@
   <main class="workspace">
     <section class="input-panel" aria-label="원문 입력">
       <div class="panel-title">
-        <h2>원문</h2>
+        <div>
+          <h2>원문 분석</h2>
+          <p>파일을 올리거나 대본을 붙여넣으면 컷 단위 글콘티 초안을 만듭니다.</p>
+        </div>
         <label class="file-button" title="텍스트 파일 불러오기">
           <input id="fileInput" type="file" accept=".txt,.text,.md,.markdown,.csv,.tsv,.json,.html,.htm,.srt,.vtt,.rtf,.doc,.docx,.pdf,.hwp,.hwpx,.odt">
           파일
@@ -42,6 +45,12 @@
       <p id="fileStatus" class="file-status" aria-live="polite">
         TXT, MD, CSV, JSON, HTML, SRT, VTT, RTF, DOC, DOCX, PDF, HWP, HWPX, ODT를 읽습니다. 내보낸 HTML 글콘티도 다시 불러와 편집할 수 있습니다.
       </p>
+      <div id="analysisSummary" class="analysis-summary" aria-live="polite">
+        <span>장면 0</span>
+        <span>컷 1</span>
+        <span>대사 0</span>
+        <span>예상 10초</span>
+      </div>
       <div class="parse-controls">
         <label>
           장면 분리
@@ -61,6 +70,12 @@
     </section>
 
     <section class="editor-panel" aria-label="글콘티 편집">
+      <div class="editor-heading">
+        <div>
+          <h2>글콘티 편집</h2>
+          <p>자동 생성된 항목은 셀 안에서 바로 수정할 수 있습니다.</p>
+        </div>
+      </div>
       <div class="meta-bar">
         <label>작품명 <input id="projectTitle" type="text" value="새 글콘티"></label>
         <label>작성자 <input id="authorName" type="text" placeholder="작성자"></label>
