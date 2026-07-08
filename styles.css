@@ -309,7 +309,7 @@ textarea:focus {
 }
 
 table {
-  width: max(1480px, 100%);
+  width: max(2100px, 100%);
   border-collapse: separate;
   border-spacing: 0;
 }
@@ -378,14 +378,20 @@ td:nth-child(6) {
 }
 
 td:nth-child(7),
-td:nth-child(8),
-td:nth-child(12) {
+td:nth-child(11),
+td:nth-child(12),
+td:nth-child(18) {
   min-width: 250px;
 }
 
+td:nth-child(8),
 td:nth-child(9),
 td:nth-child(10),
-td:nth-child(11) {
+td:nth-child(13),
+td:nth-child(14),
+td:nth-child(15),
+td:nth-child(16),
+td:nth-child(17) {
   min-width: 170px;
 }
 

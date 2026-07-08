@@ -100,11 +100,17 @@
               <th>예상 시간</th>
               <th>장소</th>
               <th>시간대</th>
+              <th>콘티 프레임</th>
+              <th>샷/사이즈</th>
+              <th>앵글/구도</th>
+              <th>카메라</th>
               <th>화면/액션</th>
               <th>대사/내레이션</th>
-              <th>자막/그래픽</th>
+              <th>자막/VFX</th>
               <th>음향/BGM</th>
-              <th>전환/효과</th>
+              <th>편집/전환</th>
+              <th>등장/소품</th>
+              <th>조명/톤</th>
               <th>촬영/연출 메모</th>
             </tr>
           </thead>
@@ -133,11 +139,17 @@
           <option>실외</option>
         </select>
       </td>
+      <td><textarea data-field="frame"></textarea></td>
+      <td><input data-field="shotSize" type="text"></td>
+      <td><input data-field="angle" type="text"></td>
+      <td><input data-field="camera" type="text"></td>
       <td><textarea data-field="visual"></textarea></td>
       <td><textarea data-field="dialogue"></textarea></td>
       <td><textarea data-field="caption"></textarea></td>
       <td><textarea data-field="sound"></textarea></td>
       <td><textarea data-field="transition"></textarea></td>
+      <td><textarea data-field="castProps"></textarea></td>
+      <td><textarea data-field="lighting"></textarea></td>
       <td><textarea data-field="memo"></textarea></td>
     </tr>
   </template>
