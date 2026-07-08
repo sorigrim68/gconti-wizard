@@ -102,10 +102,8 @@ function splitIntoScenes(text) {
   const lines = text.split("\n");
   const chunks = [];
   let current = [];
-  const headingPattern = /^\s*((S|SCENE|씬|장면|#)\s*#?\s*\d+|\d+\s*[.)]|(INT|EXT|I\/E)\.)/i;
-
   lines.forEach((line) => {
-    const isHeading = headingPattern.test(line);
+    const isHeading = isSceneHeading(line);
     if (isHeading && current.length) {
       chunks.push(current.join("\n").trim());
       current = [];
@@ -126,11 +124,13 @@ function splitIntoScenes(text) {
 
 function sceneToRows(chunk, index) {
   const lines = chunk.split("\n").map((line) => line.trim()).filter(Boolean);
-  const heading = lines[0] || "";
-  const body = lines.slice(1);
-  const headingParts = parseHeading(heading);
+  const firstLine = lines[0] || "";
+  const hasHeading = isSceneHeading(firstLine);
+  const heading = hasHeading ? firstLine : "";
+  const body = hasHeading ? lines.slice(1) : lines;
+  const headingParts = hasHeading ? parseHeading(heading) : { scene: "", location: "", timeOfDay: "" };
   const sceneNo = headingParts.scene || String(index).padStart(2, "0");
-  const events = body.length ? body.flatMap(lineToEvents).filter(Boolean) : [classifyLine(heading)];
+  const events = body.length ? body.flatMap(lineToEvents).filter(Boolean) : [classifyLine(heading || firstLine)];
   const groups = groupEventsIntoCuts(events);
 
   return groups.map((group, cutIndex) => {
@@ -177,6 +177,19 @@ function parseHeading(heading) {
     location,
     timeOfDay
   };
+}
+
+function isSceneHeading(line) {
+  const text = line.trim();
+  if (!text) return false;
+  if (/^\s*((S|SCENE|씬|장면|#)\s*#?\s*\d+|\d+\s*[.)]|(INT|EXT|I\/E)\.)/i.test(text)) {
+    return true;
+  }
+  const hasDivider = /\s[\/|-]\s/.test(text);
+  const hasTimeWord = /(아침|낮|저녁|밤|새벽|실내|실외)$/.test(text);
+  const looksShort = text.length <= 36;
+  const hasSentenceEnding = /(다|요|음|함|됨|였다|었다|한다)[.!?。！？]?$/.test(text);
+  return looksShort && hasDivider && hasTimeWord && !hasSentenceEnding;
 }
 
 function normalizeScriptText(text) {
