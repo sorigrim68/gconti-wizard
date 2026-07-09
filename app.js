@@ -43,6 +43,9 @@ const cardTemplate = document.querySelector("#cardTemplate");
 const tableWrap = document.querySelector(".table-wrap");
 const fileStatus = document.querySelector("#fileStatus");
 const analysisSummary = document.querySelector("#analysisSummary");
+const autosaveKey = "gconti-storyboard-autosave-v2";
+let autosaveTimer = 0;
+let autosavePaused = false;
 const readableExtensions = new Set([
   "txt",
   "text",
@@ -75,9 +78,15 @@ document.querySelector("#exportCardBtn").addEventListener("click", exportCardHtm
 document.querySelector("#saveProjectBtn").addEventListener("click", saveProjectFile);
 document.querySelector("#fileInput").addEventListener("change", loadTextFile);
 document.querySelector("#projectFileInput").addEventListener("change", loadProjectFile);
+document.querySelectorAll("#projectTitle, #authorName, #versionName, #createdDate, #splitMode, #defaultDuration, #sourceText").forEach((control) => {
+  control.addEventListener("input", scheduleAutosave);
+  control.addEventListener("change", scheduleAutosave);
+});
 
-buildRows([emptyRow(1)]);
-updateAnalysisSummary(getRows(), "");
+if (!restoreAutosavedProject()) {
+  buildRows([emptyRow(1)]);
+  updateAnalysisSummary(getRows(), "");
+}
 
 function emptyRow(index) {
   return {
@@ -526,6 +535,7 @@ function buildRows(rows) {
     appendTableRow(row);
   });
   updateAnalysisSummary(normalizedRows, sourceText.value);
+  scheduleAutosave();
 }
 
 function normalizeRow(row, index) {
@@ -570,6 +580,7 @@ function handleCardInput(event) {
   const row = readRowFromContainer(card);
   syncContainer(tbody.children[index], row);
   updateAnalysisSummary(getRows(), sourceText.value);
+  scheduleAutosave();
 }
 
 function handleTableInput(event) {
@@ -578,6 +589,7 @@ function handleTableInput(event) {
   const row = readRowFromContainer(tr);
   syncContainer(cardEditor.children[index], row);
   updateAnalysisSummary(getRows(), sourceText.value);
+  scheduleAutosave();
 }
 
 function syncContainer(container, row) {
@@ -606,6 +618,7 @@ function duplicateSelectedRows() {
   const selected = getSelectedCards();
   selected.forEach((card) => appendRow(stripInternalFields(readRowFromContainer(card))));
   renumberRows();
+  scheduleAutosave();
 }
 
 function deleteSelectedRows() {
@@ -618,6 +631,7 @@ function deleteSelectedRows() {
     appendRow(emptyRow(1));
   }
   renumberRows();
+  scheduleAutosave();
 }
 
 function renumberRows() {
@@ -627,6 +641,7 @@ function renumberRows() {
     tbody.children[index]?.querySelector('[data-field="scene"]') && (tbody.children[index].querySelector('[data-field="scene"]').value = value);
   });
   updateAnalysisSummary(getRows(), sourceText.value);
+  scheduleAutosave();
 }
 
 function getSelectedCards() {
@@ -642,6 +657,43 @@ function stripInternalFields(row) {
 function toggleTableView() {
   tableWrap.classList.toggle("is-visible");
   document.querySelector("#toggleTableBtn").textContent = tableWrap.classList.contains("is-visible") ? "표 숨기기" : "표 보기";
+}
+
+function scheduleAutosave() {
+  if (autosavePaused) return;
+  window.clearTimeout(autosaveTimer);
+  autosaveTimer = window.setTimeout(saveAutosaveProject, 250);
+}
+
+function saveAutosaveProject() {
+  try {
+    localStorage.setItem(autosaveKey, JSON.stringify(collectProject()));
+    setAutosaveStatus("자동 임시저장됨");
+  } catch {
+    setAutosaveStatus("자동 임시저장 공간이 부족합니다");
+  }
+}
+
+function restoreAutosavedProject() {
+  try {
+    const raw = localStorage.getItem(autosaveKey);
+    if (!raw) return false;
+    const project = JSON.parse(raw);
+    if (!project || project.type !== "gconti-storyboard-project" || !Array.isArray(project.rows)) return false;
+    autosavePaused = true;
+    applyProject(project);
+    autosavePaused = false;
+    setAutosaveStatus("마지막 작업을 자동 복구했습니다");
+    return true;
+  } catch {
+    autosavePaused = false;
+    return false;
+  }
+}
+
+function setAutosaveStatus(message) {
+  if (!fileStatus || fileStatus.classList.contains("is-warning")) return;
+  fileStatus.textContent = message;
 }
 
 function updateAnalysisSummary(rows, text) {
